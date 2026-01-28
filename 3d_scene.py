@@ -161,7 +161,7 @@ def extract_semantic_objects(df: pd.DataFrame, eps: float=0.5, min_samples: int=
                 'point_count': len(cluster_points)
             }
         
-        return objects
+    return objects
     
 objects = extract_semantic_objects(data)
 
@@ -245,7 +245,72 @@ def compute_object_features(objects):
             'point_density': obj_data['point_count'] / volume if volume > 0 else 0
         }
         
-        return features
+    return features
 
 # now we can compute our features
 features = compute_object_features(objects)
+
+
+## Spatial Relationship Computation + Topology
+# stage 1: topology analytics
+def is_contained(bounds1, bounds2):
+    """Check if object 1 is contained inside object 2"""
+    return (np.all(bounds1['min'] >= bounds2['min']) and 
+            np.all(bounds1['max'] <= bounds2['max']))
+
+def are_adjacent(bounds1, bounds2, tolerance=0.1):  # note: different objects may need different tolerances. Walls might need 0.05 while furniture 0.2 for close enough
+    # check if faces are close along each axis
+    # tolerance is in meters
+    for axis in range(3):  # X, Y, Z axes
+        # Face-to-face proximity checks
+        if (abs(bounds1['max'][axis] - bounds2['min'][axis]) < tolerance or
+            abs(bounds2['max'][axis] - bounds1['min'][axis]) < tolerance):
+            return True
+    return False
+
+# stage 2: relationship classification
+def determine_relationship_type(obj1, obj2, threshold): # bigger/smaller scene = bigger/smaller threshold
+    centroid1 = obj1['centroid']
+    centroid2 = obj2['centroid']
+    
+    distance = np.linalg.norm(centroid1 - centroid2)
+    if distance > threshold:
+        return None  # Too far apart
+    
+    # Vertical relationship analysis
+    z_diff = centroid1[2] - centroid2[2]
+    if abs(z_diff) > 0.5:  # Significant height difference
+        return 'above' if z_diff > 0 else 'below'
+    
+    # Containment analysis
+    bounds1 = obj1['bounds']
+    bounds2 = obj2['bounds']
+    
+    if is_contained(bounds1, bounds2):
+        return 'inside'
+    elif is_contained(bounds2, bounds1):
+        return 'contains'
+    
+    # Adjacency analysis
+    if are_adjacent(bounds1, bounds2, tolerance=0.3):
+        return 'adjacent'
+    
+    return 'near'  # Default fallback
+
+# stage 3: exhaustive pairwise analysis
+def compute_spatial_relationships(objects, distance_threshold=2.0):
+    relationships = []
+    object_names = list(objects.keys())
+    
+    for i, obj1 in enumerate(object_names):
+        for j, obj2 in enumerate(object_names[i+1:], i+1):  # Avoid duplicates
+            rel_type = determine_relationship_type(objects[obj1], objects[obj2], distance_threshold)
+            if rel_type:  # Only keep valid relationships
+                relationships.append((obj1, obj2, rel_type))
+    
+    return relationships
+
+# 1.0–2.0: Intimate spatial relationships (touching, very close)
+# 2.0–3.0: Functional relationships (chair near table)
+# 3.0–5.0: Room-scale relationships (furniture groupings)
+# 5.0+: Architectural relationships (across-room connections)
