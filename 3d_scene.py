@@ -314,3 +314,25 @@ def compute_spatial_relationships(objects, distance_threshold=2.0):
 # 2.0–3.0: Functional relationships (chair near table)
 # 3.0–5.0: Room-scale relationships (furniture groupings)
 # 5.0+: Architectural relationships (across-room connections)
+
+
+## Building the Scene Graph
+def build_scene_graph(objects, relationships, features):
+    G = nx.DiGraph()
+    
+    # Add nodes with rich attributes
+    for obj_name, obj_data in objects.items():
+        obj_features = features.get(obj_name, {}).copy()
+        obj_features.pop('semantic_label', None)    # avoid conflicts
+        
+        G.add_node(obj_name,
+                    semantic_label=obj_data['semantic_label'],
+                    centroid=obj_data['centroid'].tolist(),
+                    point_count=obj_data['point_count'],
+                    **obj_features)
+    
+    # add relationship edges
+    for obj1, obj2, rel_type in relationships:
+        G.add_edge(obj1, obj2, relationship=rel_type)
+    
+    return G
